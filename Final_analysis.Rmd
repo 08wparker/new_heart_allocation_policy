@@ -1,0 +1,685 @@
+---
+title: Analysis for *Treatment Practices of US Transplant Centers after the New Adult Heart Allocation Policy*
+author: "Kevin Chung, William Parker"
+output:
+  rmdformats::material:
+    highlight: tango
+---
+
+# Preparation for analysis
+## Loading in packages 
+
+This chunk is used to load in the packages in R that help us to tidy, manipulate, and visualize the data. 
+
+
+```{r knitr_options, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r library, message=TRUE}
+library(tidyverse)
+library(nnet)
+library(rmdformats)
+
+```
+
+
+## Loading in Final_Sample file 
+
+The file being uploaded is the same file that was the output of the data_preparation rmd. 
+```{r read_in_final_sample}
+
+final_sample <- read_csv("final_sample.csv")
+
+# Read data in
+final_sample <- read_csv("final_sample.csv") %>%
+  mutate(month = zoo::as.yearmon(list_date),
+         treatment = factor(treatment,
+                            levels = c("None", "Exception",
+                                       "Low-dose Inotropes", "LVAD",
+                                       "High-dose Inotropes", "IABP",
+                                        "Other MCS", "ECMO"))
+  )
+
+
+start_date <- as.Date("2017-12-1")
+
+end_date <- as.Date("2019-4-30")
+
+#mark the end of the pre-policy cohort
+pre_policy_end_date <- end_date - lubridate::years(1)
+
+#mark the start of the post-policy cohort
+transition_date <- start_date + lubridate::years(1)
+
+
+pre_policy_period <- paste0(format(start_date, "%b %Y"), " - ", format(pre_policy_end_date, "%b %Y"), " (Pre-Policy)")
+
+post_policy_period <- paste0(format(transition_date, "%b %Y"), " - ", format(end_date, "%b %Y"), " (Post-policy)")
+
+
+
+policy_switch_date <- as.Date("2018-10-18")
+
+```
+
+## Creating functions
+
+We created some functions in order to make our code more concise. 
+```{r two_rates_with_diff}
+
+comma <- function(x){
+  case_when(
+    abs(x) > 10 ~ format(x, digits = 0, big.mark = ","),
+    abs(x) > 1 ~ format(x, digits = 2, big.mark = ","),
+    TRUE ~ format(x, digits = 2, big.mark = ",")
+  )
+    
+}
+
+comma_p <- function(x){
+  case_when(
+    x < 0.001 ~ "p<0.001",
+    x < 0.01 ~ paste0("p=" ,format(x, digits = 1, big.mark = ",")),
+    TRUE ~ paste0("p=" ,format(x, digits = 2, big.mark = ","))
+  )
+}
+
+
+rates_by_policy_diff <- function(name, final_sample){
+
+  df <- final_sample %>%
+    group_by(policy) %>%
+    filter(!is.na(policy)) %>%
+    count(treatment) %>% 
+    mutate(total_treated = sum(n),
+           percent_treated = 100*n/total_treated) %>%
+    filter(treatment == name)
+  
+  pre <- df[1,]
+  post <- df[2,]
+  
+  a <- prop.test(x = c(post$n, pre$n), n = c( post$total_treated, pre$total_treated))
+
+  low_ci <- 100*a$conf.int[1]
+  
+  up_ci <- 100*a$conf.int[2]
+
+  post <- df$percent_treated[[2]]
+
+  pre <- df$percent_treated[[1]]
+
+  diff <- (post - pre)
+
+  #paste0(name, "%; 95% CI ", comma(low_ci), "% to ", comma(up_ci), "%).")
+  paste0(name, " was used to list ", comma(pre), "% of candidates in the 3-tier system to ", comma(post), "% candidates in the 6-tier system (absolute difference ", comma(diff), "%; 95% CI ", comma(low_ci), "% to ", comma(up_ci), "%).")
+  
+}
+
+
+paragraph <- ""
+
+
+for (name in levels(final_sample$treatment)){
+  paragraph <- paste0(paragraph, " ", rates_by_policy_diff(name, final_sample))
+}
+```
+
+```{r two_rates_with_diff_statuses}
+rates_by_policy_diff_status <- function(name, final_sample){
+
+  df <- final_sample %>%
+    group_by(policy) %>%
+    filter(!is.na(policy)) %>%
+    count(status) %>% 
+    mutate(total_treated = sum(n),
+           percent_treated = 100*n/total_treated) %>%
+    filter(status == name)
+  
+  pre <- df[1,]
+  post <- df[2,]
+  
+  a <- prop.test(x = c(post$n, pre$n), n = c( post$total_treated, pre$total_treated))
+
+  low_ci <- 100*a$conf.int[1]
+  
+  up_ci <- 100*a$conf.int[2]
+
+  post <- df$percent_treated[[2]]
+
+  pre <- df$percent_treated[[1]]
+
+  diff <- (post - pre)
+
+  paste0(name, " was used to list ", comma(pre), "% of candidates in the pre-policy cohort and ", comma(post), "% candidates in the post-policy cohort (absolute difference ", comma(diff), "%; 95% CI ", comma(low_ci), "% to ", comma(up_ci), "%).")
+  
+}
+
+paragraph_status <- ""
+
+
+for (name in levels(factor(final_sample$status))){
+  paragraph_status <- paste0(paragraph_status, " ", rates_by_policy_diff_status(name, final_sample))
+}
+
+
+absolute_diff_count <- function(name, x, group_var, final_sample){
+
+  group_var <- enquo(group_var)
+  x <- enquo(x)
+  
+  df <- final_sample %>%
+    group_by(!! group_var) %>%
+    filter(!is.na(!! group_var)) %>%
+    count(!! x) %>%
+    mutate(total_treated = sum(n),
+        percent_treated = 100*n/total_treated) %>%
+    filter(!!x == name)
+  
+  
+  pre <- df[1,]
+  post <- df[2,]
+  
+  a <- prop.test(x = c(post$n, pre$n), n = c( post$total_treated, pre$total_treated))
+
+  low_ci <- 100*a$conf.int[1]
+  
+  up_ci <- 100*a$conf.int[2]
+
+  post <- df$percent_treated[[2]]
+
+  pre <- df$percent_treated[[1]]
+
+  diff <- (post - pre)
+
+  #this text can be customized to according to the variable of interest
+  paste0(comma(pre), "% of candidates in the pre-policy cohort ", comma(post), "% to candidates in the post-policy cohort (absolute difference ", comma(diff), "%; 95% CI ", comma(low_ci), "% to ", comma(up_ci), "%)")
+  
+}
+pre_policy_counts <- final_sample %>%
+  filter(policy == pre_policy_period) %>%
+  group_by(status) %>%
+  count() %>%
+  ungroup() %>%
+  mutate(total = sum(n),
+         pct_total = paste0(comma(100*n/total), "%")) 
+
+
+post_policy_counts <- final_sample %>%
+  filter(policy == post_policy_period) %>%
+  group_by(status) %>%
+  count() %>%
+  ungroup() %>%
+  mutate(total = sum(n),
+         pct_total = paste0(comma(100*n/total), "%")) 
+```
+
+
+# Table 1: Candidate demographics and clinical characteristics by policy period
+```{r select_table_one_variables, warning = FALSE}
+cand_thor <- haven::read_sas("cand_thor.sas7bdat", NULL)# loading in "cand_thor" 
+
+for_table_1 <- final_sample %>%
+  select(policy, PX_ID) %>%
+  filter(is.na(policy) == FALSE) %>%
+  left_join(cand_thor) %>%
+  filter(PX_ID %in% final_sample$PX_ID) %>%
+   mutate(age = CAN_AGE_AT_LISTING,
+         female = ifelse(CAN_GENDER == "F", 1, 0),
+         race = factor(CAN_RACE),
+         race = fct_lump(race, n = 3),
+         race = fct_recode(race,
+                          "White" = "8",
+                          "Black" = "16",
+                          "Hispanic" = "2000", 
+                          "Other" = "Other"),
+         bmi = CAN_BMI,
+        simple_diagnosis = case_when(
+          CAN_DGN>999 & CAN_DGN<1007 ~ "Dilated cardiomyopathy, non-ischemic",
+          CAN_DGN == 1007 | CAN_DGN ==1200 ~ "Ischemic cardiomyopathy",
+          CAN_DGN>1048 & CAN_DGN< 1100 ~ "Restrictive cardiomyopathy",
+          TRUE ~ "Other"
+        ),
+        "Diagnosis" = factor(simple_diagnosis, 
+                           levels = c("Dilated cardiomyopathy, non-ischemic", 
+                                      "Ischemic cardiomyopathy", 
+                                      "Restrictive cardiomyopathy", 
+                                      "Other")),
+        diabetes = case_when(
+          CAN_DIAB_TY>1 & CAN_DIAB_TY<6 ~ "History of DM",
+          CAN_DIAB_TY ==1 ~ "Non-diabetic",
+          TRUE ~ "Unknown"
+        ),
+        diabetes = factor(diabetes),
+        female_gfr = if_else(CAN_GENDER == "F", 0.742, 1),
+        black_gfr = if_else(race == "Black", 1.21, 1),
+        eGFR = 175*((CAN_MOST_RECENT_CREAT)^(-1.154))*(CAN_AGE_AT_LISTING^(-0.203))*female_gfr*black_gfr,
+        functional_status = case_when(
+          CAN_FUNCTN_STAT == 1 | (CAN_FUNCTN_STAT>2069) ~"Limited Impairment, 100-70%",
+          CAN_FUNCTN_STAT ==2 | (CAN_FUNCTN_STAT>2049 & CAN_FUNCTN_STAT<2061) ~ "Moderate Impairment, 50-60%",
+          CAN_FUNCTN_STAT == 3 | (CAN_FUNCTN_STAT>2000 & CAN_FUNCTN_STAT<2041) ~ "Severe Impairment ≥ 40%%",
+          TRUE ~ "Unknown"
+        ),
+        functional_status = ifelse(is.na(functional_status), "Unknown", functional_status),
+        functional_status = factor(functional_status),
+        pcwp = CAN_PCW_MEAN,
+        body_surface_area = 0.007184*(CAN_HGT_CM)^(0.725)*CAN_WGT_KG^(0.425),
+        cardiac_index = as.numeric(CAN_CARDIAC_OUTPUT/body_surface_area),
+        cardiac_index = ifelse(cardiac_index>10, NA, cardiac_index),
+        blood_type = factor(
+           case_when(
+             CAN_ABO %in% c("A", "A1", "A2") ~ "A",
+             CAN_ABO %in% c("A1B", "A2B") ~ "AB",
+             TRUE ~ CAN_ABO)
+           ),
+        payor = case_when(
+          CAN_PRIMARY_PAY %in% c(3,4,13) ~ "Medicare",
+          CAN_PRIMARY_PAY ==2 ~ "Medicaid",
+          CAN_PRIMARY_PAY == 1 ~ "Private",
+          TRUE ~ "Other"
+        ),
+        History_of_Smoking = case_when(
+           CAN_HIST_CIGARETTE == "Y" ~ "Smoking history",
+           CAN_HIST_CIGARETTE == "N" ~ "No prior smoking history"),
+        Working = case_when(
+           CAN_WORK_INCOME == "N" ~ "Not working",
+           CAN_WORK_INCOME == "Y" ~ "Working"),
+        Education_Status = case_when(
+          CAN_EDUCATION %in% c(4,5,6) ~ "College",
+          CAN_EDUCATION == 3 ~ "High School",
+          TRUE ~ "Less than high school or unknown"
+        ),
+  ) %>%
+  select(PX_ID, policy, #patient ID and listing status
+         age, female, race, #basic demographics
+         History_of_Smoking, Working, Education_Status,
+         bmi, blood_type, "Diagnosis", eGFR, diabetes, functional_status, #diagnosis and medical comorbidities, some factor variables some continuous
+         cardiac_index, pcwp, #hemodynamics
+         payor, #payor
+         #ecmo, iabp, lvad, other_mcs, high_dose_inotropes, low_dose_inotropes #treatments- hot coded
+         ) %>%
+  mutate_if(is.character, factor)
+
+haven::write_dta(for_table_1, "for_table_1.dta")
+```
+
+```{r generate_table_1}
+myvars <- names(for_table_1 %>% select(-PX_ID, -policy))
+tableone::CreateTableOne(data = for_table_1, myvars, strata ="policy", smd = TRUE)
+```
+Summary statistics for candidate characteristics of both the pre and post-policy cohort. At a p-value threshold of 0.05, patients had lower rates of 
+
+
+# Figure 1: Trends in treatments used to list adult heart transplant candidates during the transition to the new heart allocation policy
+```{r monthly_percentage}
+
+treatment_pal <- "Paired"
+treatment_pal_dir <- 1
+
+by_month <- final_sample %>%
+  group_by(policy, month) %>%
+  count(treatment) %>%
+  mutate(total_per_month = sum(n)) %>%
+    ungroup () %>%
+  mutate(month = factor(month),
+         percentage_per_month = 100*n/total_per_month)
+
+policy_switch <- which(levels(by_month$month) == "Oct 2018")
+
+pre_policy_start <- which(levels(by_month$month) == "Dec 2017")
+
+pre_policy_end <- which(levels(by_month$month) == "Apr 2018")
+
+post_policy_start <- which(levels(by_month$month) == "Dec 2018")
+
+post_policy_end <- which(levels(by_month$month) == "Apr 2019")
+
+
+ggplot(by_month, aes(x = month, y = n, color = treatment, group = treatment)) +
+  geom_line() + 
+  geom_point() + 
+  geom_vline(aes(xintercept = policy_switch, linetype = "Policy implemented")) + 
+  scale_color_brewer(palette=treatment_pal, direction = treatment_pal_dir) +
+  labs(
+    x = "Month of Listing",
+    y = "Number of candidates listed",
+    linetype = "",
+    color = "Treatment") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.title.x = element_text(margin = margin(t = 15, r = 0, b = 0, l = 0))
+          ) +
+  scale_linetype_manual(values = c("dashed", "dotted", "solid")) +
+  scale_fill_manual(values = c("gray", "darkgray")) +
+  annotate("text", x = which(levels(by_month$month)== "Feb 2018"), y = 145, label= "Pre-policy cohort") +
+  annotate("text", x = which(levels(by_month$month)== "Feb 2019"), y = 145, label= "Post-policy cohort") +
+  annotate("rect",
+           xmin = which(levels(by_month$month)== "Dec 2017"), 
+           xmax = which(levels(by_month$month)== "Apr 2018"), 
+           ymin = 0, ymax = 140,  alpha = 0.2)+
+  annotate("rect",
+           xmin = which(levels(by_month$month)== "Dec 2018"), 
+           xmax = which(levels(by_month$month)== "Apr 2019"), 
+           ymin = 0, ymax = 140, alpha = 0.2)
+
+#ggsave("Figure_1.pdf")
+ggsave("Figure_1.tiff", dpi = "print", width = 7.29, height = 4.51)
+```
+Trends in the number of candidates listed by month, stratified by treatment at initial listing. Adult heart candidates only.
+
+
+# Table 2: Treatment rates by policy period
+
+This table allows us to see how treatment practices have changed before and after the policy change.
+```{r treatment_rates_by_month,  warning = FALSE}
+
+pre_total <- final_sample %>% 
+  filter(policy == !! pre_policy_period) %>% 
+  nrow()
+
+post_total <- final_sample %>% 
+  filter(policy == !! post_policy_period) %>% 
+  nrow()
+
+for_ci <- final_sample %>%
+  filter(!is.na(policy)) %>%
+  group_by(policy) %>%
+  count(treatment) %>%
+  pivot_wider(names_from = policy, values_from =n)
+
+
+prop_wrapper <- function(name, for_ci, pre_policy_period, post_policy_period){
+  df <- for_ci %>%
+    filter(treatment == name)
+  
+  pre <- df[pre_policy_period][[1]]
+  
+  post <- df[post_policy_period][[1]]
+
+  test <- prop.test(x = c(post, pre), n = c(post_total, pre_total))
+  
+  diff <- test$estimate
+  
+  
+  pre_policy <- paste0(comma(pre)," (", comma(100*diff[2]), ")")
+  
+  post_policy <-paste0(comma(post), " (", comma(100*diff[1]), ")")
+  
+  low_ci <- test$conf.int[1]
+  up_ci <- test$conf.int[2]
+  
+  ci <- paste0("[95% CI, ", comma(100*low_ci), "% to ", comma(100*up_ci), "%]")
+  
+  abs_diff_pct = paste0(comma(100*diff[1] - 100*diff[2]), "%")
+  
+  change <- paste0(abs_diff_pct, " ", ci)
+  
+  output <- tibble(
+    treatment = name,
+    !!pre_policy_period := pre_policy,
+    !!post_policy_period :=  post_policy,
+    `absolute difference (%)` = change)
+  
+  return(output)
+}
+
+
+table_2 <- 
+  tibble(
+    treatment = "",
+    `absolute difference (%)` = "",
+    !!pre_policy_period := paste0("N = ", pre_total),
+    !!post_policy_period := paste0("N = ", post_total)
+  ) %>% rbind(map_dfr(levels(final_sample$treatment), ~ prop_wrapper(.x, for_ci, pre_policy_period, post_policy_period))) %>%
+  select(treatment, !! pre_policy_period,  !! post_policy_period, `absolute difference (%)`)
+
+write_csv(table_2, "table2.csv")
+
+knitr::kable(table_2)
+#table_2
+```
+
+
+# Figure 2: Predicted and Observed Status Distribution in the New US Heart Allocation System
+
+The predicted status observation is how the candidates in the old priority system would be classified in the new priority system.
+```{r figure_2}
+ggplot(final_sample %>% filter(is.na(policy) == FALSE), aes(x = factor(status), fill = treatment)) +
+  geom_bar(color = "gray") +
+  facet_wrap(.~policy, nrow = 2) +
+  labs(
+    x = "",
+    y = "Number of Candidates",
+    fill = "Treatment") +
+  scale_fill_brewer(palette=treatment_pal, direction = treatment_pal_dir, guide = guide_legend(reverse = FALSE)) +
+  theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#ggsave("Figure_2.pdf")
+ggsave("Figure_2.tiff", dpi = "print", width = 7.29, height = 4.51)
+```
+Predicted (left) Status distribution was created by applying the Status 1-6 listing criteria to the seasonally matched pre-policy cohort. Observed (right) Status distribution is histogram of actual listing Statuses utilized during the post-policy cohort. Colors correspond to the treatment listed on the justification form for each status level.
+
+
+# Figure 3: Trends in Adult Heart Transplant Candidates Subject to Hemodynamic Requirements in the New Heart Allocation System
+```{r Figure_3A_main}
+shock_requirement <- final_sample %>%
+  filter(treatment %in% c("Low-dose Inotropes", "High-dose Inotropes", "IABP", "ECMO"))%>% 
+   mutate(meet_shock = case_when(
+    treatment == "IABP" & status == "Status 2" & CAN_INIT_STAT == 2010 ~ "Met Hemodynamic Requirement",
+    treatment == "IABP" & status == "Status 3" & CAN_INIT_STAT == 2010 ~ "Failed Hemodynamic Requirement",
+    treatment == "High-dose Inotropes" & status == "Status 3" & CAN_INIT_STAT == 2010 ~ "Met Hemodynamic Requirement",
+    treatment == "High-dose Inotropes" & status == "Status 4" & CAN_INIT_STAT == 2010 ~ "Failed Hemodynamic Requirement",
+    treatment == "ECMO" & status == "Status 3" & CAN_INIT_STAT == 2010 ~ "Failed Hemodynamic Requirement",
+    treatment == "ECMO" & status == "Status 1" & CAN_INIT_STAT == 2010 ~ "Met Hemodynamic Requirement",
+    treatment == "Low-dose Inotropes" & status == "Status 6" & CAN_INIT_STAT == 2020 ~ "Failed Hemodynamic Requirement",
+    treatment == "Low-dose Inotropes" & status == "Status 4" & CAN_INIT_STAT == 2020 ~ "Met Hemodynamic Requirement",
+    TRUE ~ "Observed Listings Post-Policy"
+  ))
+
+by_month_shock <- shock_requirement %>%
+  filter(treatment != "ECMO") %>%
+  group_by(month, treatment) %>%
+  count(meet_shock) %>%
+  ungroup() %>%
+  mutate(month = factor(month))
+
+every_other_month <- levels(by_month_shock$month)[c(TRUE, FALSE)]
+
+
+ggplot(by_month_shock, aes(x = month, y = n, color = meet_shock, fill = meet_shock, group = meet_shock)) +
+  facet_wrap(~treatment, nrow = 3, scales = "free_y") + 
+  geom_point() + geom_line() + 
+  geom_vline(aes(xintercept = policy_switch, linetype = "Policy implemented")) +
+  labs(
+    x = "Month of Listing",
+    y = "Number of Listings per Month") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.title.x = element_text(margin = margin(t = 20, r = 0, b = 0, l = 0)),
+          legend.title = element_blank()) +
+  scale_linetype_manual(values = c("dashed", "dotted", "solid"), guide = FALSE) 
+
+ggsave("Figure_3.tiff", dpi = "print", width = 7.29, height = 4.51)
+```
+
+Number of candidates listed with low-dose inotropes, high-dose inotropes (with invasive hemodynamic monitoring), and IABP from Decemeber 2017 to April 2019. Listings prior to policy implementation are stratified by whether or not the candidates met the hemodynamic requirement for their respective therapy.
+
+
+
+# Figure 4: Cardiac Index of Adult Heart Transplant Candidates subject to hemodynamic criteria in the new allocation system
+```{r cardiac_index_time, warning= FALSE, message = FALSE}
+shock_requirement %>%
+  filter(treatment %in% c("Low-dose Inotropes", "High-dose Inotropes", "IABP")) %>% 
+  filter((CAN_CARDIAC_OUTPUT_MEDS == "Y" & just_measured_on_ino ==1) |
+  (CAN_CARDIAC_OUTPUT_MEDS == "N" & just_measured_on_ino ==0)|
+    is.na(just_measured_on_ino)) %>%
+  group_by(month, treatment) %>%
+  summarise(`Registration form` = mean(CI_list, na.rm = TRUE),
+            sd_ci_list = sd(CI_list, na.rm = TRUE),
+            n_ci_list = n(),
+            `Justification form` = mean(CI_just, na.rm = TRUE),
+            sd_ci_just = sd(CI_just, na.rm = TRUE),
+            n_ci_just = n()) %>%
+  ungroup() %>%
+  mutate(month = factor(month)) %>%
+  pivot_longer(cols = c("Registration form", "Justification form"),
+               names_to = "Record",
+               values_to = "Cardiac Index") %>%
+  mutate(
+    upper_ci = case_when(
+      Record == "Registration form" ~ `Cardiac Index` + 1.96*sd_ci_list/sqrt(n_ci_list),
+      TRUE ~ `Cardiac Index` + 1.96*sd_ci_just/sqrt(n_ci_just)
+    ),
+    lower_ci = case_when(
+      Record == "Registration form" ~ `Cardiac Index` - 1.96*sd_ci_list/sqrt(n_ci_list),
+      TRUE ~ `Cardiac Index` - 1.96*sd_ci_just/sqrt(n_ci_just)
+    )
+  ) %>%
+ggplot(aes(x = month, y = `Cardiac Index`, ymin = lower_ci, ymax = upper_ci, color = `Record`, group = `Record`)) +
+  geom_errorbar(alpha = 0.6, width = 0.5) + 
+  geom_line() +
+  geom_point() + 
+  facet_wrap(~treatment, nrow = 3) + 
+  geom_vline(aes(xintercept = policy_switch, linetype = "Policy implemented")) +
+  labs(
+    x = "Month of Listing",
+    y = "Mean Cardiac Index",
+    linetype = "") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.title.x = element_text(margin = margin(t = 20, r = 0, b = 0, l = 0))) +
+  scale_linetype_manual(values = c("dashed", "dotted", "solid")) +
+  scale_color_discrete(direction = -1, guide = guide_legend(reverse = TRUE))
+
+
+ggsave("Figure4.tiff", dpi = "print", width = 7.29, height = 4.51)
+```
+Mean cardiac index by month of candidates listed with low-dose inotropes, high-dose inotropes (with invasive hemodynamic monitoring), and IABP from Decemeber 2017 to April 2019. The blue points correspond to mean values recorded on the transplant candidate registration form and are supposed to be measured "at the time of listing". The red points correspond to the cardiac index from the status justification form. Prior to the policy change, only candidates listed with high-dose inotropes had recorded justification form hemodynamics. Only pairs of measurements where inotropic support was concordant (i.e. both on or both off) were included. Error bars correspond to 95% confidence intervals of the means. ECMO candidates omitted due to small numbers of candidates listed each month.
+
+# Supplemental material
+
+## Online Table 2: IPW multinomial logistic regression output
+```{r IPW, warning=FALSE, message=FALSE}
+for_regress <- for_table_1 %>%
+  left_join(final_sample %>% select(treatment, status, PX_ID)) %>%
+  select(-cardiac_index, -pcwp) %>%
+  na.omit() %>%
+  fastDummies::dummy_cols() %>% 
+  select(post = "policy_Dec 2018 - Apr 2019 (Post-policy)",
+         treatment, policy,
+         age,
+         female,
+         race_Black,
+         Working_Working,
+         Education_Status_College,
+         smoking = "History_of_Smoking_Smoking history",
+         bmi,
+         blood_type_AB, blood_type_B, blood_type_O,
+         restrictive_cm = "Diagnosis_Restrictive cardiomyopathy",
+         dilated_cm = "Diagnosis_Dilated cardiomyopathy, non-ischemic",
+         ischemic_cm = "Diagnosis_Ischemic cardiomyopathy",
+         eGFR,
+         diabetes_mellitus = "diabetes_History of DM",
+         limited_impairment = "functional_status_Limited Impairment, 100-70%",
+         moderate_impairment = "functional_status_Moderate Impairment, 50-60%", 
+         severe_impairement = "functional_status_Severe Impairment ≥ 40%%",
+         payor_Medicaid, payor_Medicare, payor_Private)      
+
+
+ps_model <- glm("post ~ age + female + race_Black+ smoking + Working_Working + Education_Status_College + bmi + blood_type_AB + blood_type_B + blood_type_O + restrictive_cm + dilated_cm + ischemic_cm + eGFR + diabetes_mellitus + limited_impairment + moderate_impairment + severe_impairement + payor_Medicaid + payor_Medicare + payor_Private", data = for_regress, family = binomial())
+
+
+predicted_policy <- tibble(p_post = predict(ps_model, type = "response"), 
+                           post = for_regress$post
+                           ) %>% mutate(policy= case_when(
+                             post == 1~ post_policy_period,
+                             TRUE ~ pre_policy_period))
+
+
+predicted_policy <- predicted_policy %>%
+  mutate(ipw = case_when(
+    policy == post_policy_period ~ 1/p_post,
+    TRUE ~ 1/(1-p_post)) 
+    )
+
+for_regress["ipw"] <- predicted_policy$ipw
+treat_reg <- multinom(treatment ~ post, data = for_regress, weights = predicted_policy$ipw)
+
+summary(treat_reg)
+```
+
+
+
+## Online Table 3: Adjusted treatment rates after IPW
+```{r table_2b}
+mean_data <- tibble(post = c(0,1))
+
+predict(treat_reg, newdata = mean_data, "probs")
+
+ipw_percentages <- predict(treat_reg, newdata = mean_data, "probs")
+
+
+ipw_table <- tibble(treatment = levels(for_regress$treatment),
+                    !! pre_policy_period := paste0(comma(100*ipw_percentages[1,]), " %"),
+                    !! post_policy_period := paste0(comma(100*ipw_percentages[2,]), " %"))
+
+# re-create propensity score weighted mlogitin Stata to use the convenient margins command. See see propensity_score_analysis.do
+haven::write_dta(for_regress, "for_mlogit.dta")
+
+diff_w_95_ci  <- read_csv("pre_post_diffs.csv") %>%
+  mutate_at(c("absolute diff", "lower 95% CI", "upper 95% CI"), function(x) comma(100*x)) %>%
+  mutate("absolute difference (%)" = paste0(`absolute diff`, "% [95% CI, ", `lower 95% CI`, "% to ", `upper 95% CI`, "%]"))
+
+pre_ipw_total <- for_regress %>% filter(post == 0) %>% nrow()
+
+post_ipw_total <- for_regress %>% filter(post == 1) %>% nrow()
+
+knitr::kable(tibble(
+    treatment = "",
+    !!pre_policy_period := paste0("N = ", pre_ipw_total),
+    !!post_policy_period := paste0("N = ", post_ipw_total),
+        `absolute difference (%)` = ""
+  ) %>% rbind(ipw_table %>% 
+                left_join(diff_w_95_ci %>% select(treatment, "absolute difference (%)"))
+  ))
+```
+
+## Figure S2: Standardized differences before and after IPW
+```{r balance_diagnostics, message = FALSE}
+
+# import the output of the convenient tebalance command, see propensity_score_analysis.do
+stand_diffs <- read_csv("Stand_diffs.csv")
+
+
+stand_diffs %>%
+  arrange(abs(Unweighted)) %>%
+  mutate(variable = factor(variable, levels = unique(variable))) %>%
+  pivot_longer(cols = -variable, names_to = "Model", values_to = "Standardized Difference") %>%
+  ggplot(aes(x = 100*abs(`Standardized Difference`), y = variable, color = Model)) +
+  geom_point() + 
+  geom_vline(aes(xintercept = 10), linetype = "dashed") +
+  geom_vline(aes(xintercept = 1), linetype = "dotted") +
+  scale_x_continuous(breaks = seq(1:10)) +
+  labs(x = "Absolute Standardized Difference (%)",
+                      y = "Candidate characteristic",
+                      color = "")
+
+ggsave("Figure_S2.pdf")
+```
+&nbsp;
+<hr />
+<p style="text-align: center;">Code by Kevin Chung and William Parker</a></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>William.Parker@uchospitals.edu</em></span></p>
+<p style="text-align: center;"><span style="color: #808080;"><em>Kevin.Chung@uchospitals.edu</em></span></p>
+
+<!-- Add icon library -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+
+<!-- Add font awesome icons -->
+<p style="text-align: center;">
+    <a href="https://twitter.com/wf_parker?lang=en" class="fa fa-twitter"></a>
+</p>
+
+&nbsp;

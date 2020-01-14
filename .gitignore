@@ -1,0 +1,20 @@
+#ignore evertyhing
+*
+
+#except these files
+!.gitignore
+!*.md
+!.Rproj
+
+!Final_analysis.Rmd
+!data_preparation.Rmd
+
+!data_preparation.html
+!Final_analysis.html
+!propensity_score_analysis.do
+!Stand_diffs.csv
+!pre_post_diffs.csv
+
+
+# ...even if they are in subdirectories
+!*/
