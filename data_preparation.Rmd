@@ -1,5 +1,5 @@
 ---
-title: Data prep for *Treatment Practices of US Transplant Centers after the New Adult Heart Allocation Policy*
+title: Data prep for *Practice Changes at U.S. Transplant Centers After the New Adult Heart Allocation Policy*
 author: "Kevin Chung, William Parker"
 output:
   rmdformats::material:

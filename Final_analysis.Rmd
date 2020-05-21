@@ -1,5 +1,5 @@
 ---
-title: Analysis for *Treatment Practices of US Transplant Centers after the New Adult Heart Allocation Policy*
+title: Analysis for *Practice Changes at U.S. Transplant Centers After the New Adult Heart Allocation Policy*
 author: "Kevin Chung, William Parker"
 output:
   rmdformats::material:
@@ -308,7 +308,7 @@ haven::write_dta(for_table_1, "for_table_1.dta")
 myvars <- names(for_table_1 %>% select(-PX_ID, -policy))
 tableone::CreateTableOne(data = for_table_1, myvars, strata ="policy", smd = TRUE)
 ```
-Summary statistics for candidate characteristics of both the pre and post-policy cohort. At a p-value threshold of 0.05, patients had lower rates of 
+Summary statistics for candidate characteristics of both the pre and post-policy cohort. At a p-value threshold of 0.05. We wanted to emphasize that this table lists the mean. The table in the article uses median and was produced in Stata.
 
 
 # Figure 1: Trends in treatments used to list adult heart transplant candidates during the transition to the new heart allocation policy
