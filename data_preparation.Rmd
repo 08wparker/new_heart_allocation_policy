@@ -709,6 +709,11 @@ There are 60 inactive listings in the pre policy cohort and 51 in the post polic
     <a href="https://twitter.com/wf_parker?lang=en" class="fa fa-twitter"></a>
 </p>
 
+<p style="text-align: center;">
+    <a href="https://twitter.com/KChung_UC" class="fa fa-twitter"></a>
+</p>
+
+
 &nbsp;
 
 

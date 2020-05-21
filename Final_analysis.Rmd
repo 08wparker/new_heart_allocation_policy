@@ -308,7 +308,7 @@ haven::write_dta(for_table_1, "for_table_1.dta")
 myvars <- names(for_table_1 %>% select(-PX_ID, -policy))
 tableone::CreateTableOne(data = for_table_1, myvars, strata ="policy", smd = TRUE)
 ```
-Summary statistics for candidate characteristics of both the pre and post-policy cohort. At a p-value threshold of 0.05. We wanted to emphasize that this table lists the mean. The table in the article uses median and was produced in Stata.
+Summary statistics for candidate characteristics of both the pre and post-policy cohort. At a p-value threshold of 0.05. We want to emphasize that this table lists the mean. The table in the article uses median and was produced in Stata.
 
 
 # Figure 1: Trends in treatments used to list adult heart transplant candidates during the transition to the new heart allocation policy
@@ -680,6 +680,10 @@ ggsave("Figure_S2.pdf")
 <!-- Add font awesome icons -->
 <p style="text-align: center;">
     <a href="https://twitter.com/wf_parker?lang=en" class="fa fa-twitter"></a>
+</p>
+
+<p style="text-align: center;">
+    <a href="https://twitter.com/KChung_UC" class="fa fa-twitter"></a>
 </p>
 
 &nbsp;
